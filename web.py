@@ -151,4 +151,84 @@ class BaseFrontController(object):
     def request(self):
         return self._request
 
+
+class StaticController(BaseController):
+    
+    _types = {
+      "ico": "image/icon",
+      "jpg": "image/jpeg",
+      "jpeg": "image/jpeg",
+      "png": "image/png",
+      "gif": "image/gif",
+      "css": "text/css",
+      "js": "text/javascript"
+    }
+    
+    def init(self):
+        pass
+    
+    def exit(self):
+        pass
+    
+    
+    def index(self, rest):
+        pass
+    
+    def _getStaticResponse(self):
+        
+        rs = Response()
+        
+        # find the static resource
+        path = [self.static_path]
+        path.extend(self.request.path.split('/'))
+        path = path_join(*path)
+        
+
+        # check last modified 
+        modified = file_stat(path).st_mtime
+        modified_real = datetime.fromtimestamp(modified)
+        
+        # check if cache is in browser and if it is new enough
+        if self.request.if_modified_since:
+            modified_since = self.request.if_modified_since
+            if not (modified_real > modified_since):
+                # the cache is usable -> not modified status
+                rs.status_code=304
+                return rs
+            
+        # cache is old, proceed serving
+        fh = open(path, 'r')
+        rs.data = fh.read()
+        fh.close()
+        rs.content_length = len(rs.data)
+        
+        
+        # set content type
+        ext = path.split(".")[-1].lower()
+        if ext in self._types.keys():
+            rs.content_type = self._types[ext]
+        
+        # set cache headers
+        rs.pragma = 'public'
+        rs.headers['Cache-Control']= "max-age=%d" % (24*3600)
+
+        #expires = datetime.now()+timedelta(days=1)
+        
+        #rs.headers['Expires'] = apache_time(expires)
+        #rs.headers['Last-Modified'] = apache_time(modified_real)
+
+        return rs
+
+
+    @property
+    def response(self):
+        rs = Response('Not found')
+        rs.status_code = 404
+        try:
+            return self._getStaticResponse()
+        except OSError:
+            pass
+        except IOError:
+            pass
+        return rs
         
