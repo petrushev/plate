@@ -1,7 +1,12 @@
 
+import os.path
+from os import mkdir, stat
 from sys import modules
+from time import time
 
 from simplejson import dumps as json_dumps
+from simplejson import loads as json_loads
+
 
 from werkzeug.wrappers import Request, Response
 from werkzeug.utils import redirect as http_redirect
@@ -231,4 +236,74 @@ class StaticController(BaseController):
         except IOError:
             pass
         return rs
+
+
+class BaseSession(dict):
+    """Extendable session class, need to implement __init__, save, age""" 
+    
+    def __init__(self):
+        raise NotImplementedError
+    
+    def load(self, content):
+        self.clear()
+        try:
+            saved_dict=json_loads(content)
+        except EOFError:
+            saved_dict={}
+
+        self.update(saved_dict)
+            
+    def save(self):
+        raise NotImplemented, 'save() method of <%s> is not implemented' % self.__class__
+    
+    @property
+    def age(self):
+        try:
+            return self._age
+        except AttributeError:
+            raise NotImplementedError, "%s has not implemented 'age' property"\
+                                       % self.__class__.__name__
         
+
+class FileStoreSession(BaseSession):
+    
+    def __init__(self, id, store_path):
+
+        BaseSession.__init__(self)
+
+        self._store_path = store_path
+        self._session_id = id
+        
+        path1 = store_path + '/' + id[:2]
+        path2 = path1 + '/' + id[2:4]
+        self.filepath = path2 + '/' + id[4:]
+
+        if not os.path.exists(path1):
+            mkdir(path1)
+            mkdir(path2)
+            content=""
+            self._age=0
+        elif not os.path.exists(path2): 
+            mkdir(path2)
+            content=""
+            self._age=0
+        else:
+            try: 
+                fh = open(self.filepath, 'r')
+            except IOError:
+                content=""
+                self._age=0
+            else:
+                # session already exists
+                content = fh.read()
+                fh.close()
+                self._age = time()-stat(self.filepath).st_mtime
+        
+        self.load(content)
+        
+        
+    def save(self):
+        fh = open(self.filepath, 'w')
+        fh.write(json_dumps(dict(self)))
+        fh.close()
+
