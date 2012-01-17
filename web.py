@@ -6,6 +6,7 @@ from time import time
 
 from simplejson import dumps as json_dumps
 from simplejson import loads as json_loads
+from simplejson import JSONDecodeError
 
 
 from werkzeug.wrappers import Request, Response
@@ -170,6 +171,8 @@ class BaseSession(dict):
             saved_dict=json_loads(content)
         except EOFError:
             saved_dict={}
+        except JSONDecodeError:
+            saved_dict={}
 
         self.update(saved_dict)
             
@@ -188,8 +191,6 @@ class BaseSession(dict):
 class FileStoreSession(BaseSession):
     
     def __init__(self, id, store_path):
-
-        BaseSession.__init__(self)
 
         self._store_path = store_path
         self._session_id = id
