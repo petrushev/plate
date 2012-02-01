@@ -1,8 +1,12 @@
 
 import os.path
-from os import mkdir, stat
+from os import mkdir
+from os import stat as file_stat
+from os.path import join as path_join
+
 from sys import modules
 from time import time
+from datetime import datetime
 
 from simplejson import dumps as json_dumps
 from simplejson import loads as json_loads
@@ -186,9 +190,8 @@ class StaticController(BaseController):
         
         # find the static resource
         path = [self.static_path]
-        path.extend(self.request.path.split('/'))
+        path.extend(self.requested_path.split('/'))
         path = path_join(*path)
-        
 
         # check last modified 
         modified = file_stat(path).st_mtime
@@ -298,7 +301,7 @@ class FileStoreSession(BaseSession):
                 # session already exists
                 content = fh.read()
                 fh.close()
-                self._age = time()-stat(self.filepath).st_mtime
+                self._age = time()-file_stat(self.filepath).st_mtime
         
         self.load(content)
         
