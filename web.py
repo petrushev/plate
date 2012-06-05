@@ -1,25 +1,20 @@
 
-import os.path
-from os import mkdir
-from os import stat as file_stat
-from os.path import join as path_join
+import os
 
 from sys import modules
 from time import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from simplejson import dumps as json_dumps
-from simplejson import loads as json_loads
-from simplejson import JSONDecodeError
-
+from simplejson import dumps, loads, JSONDecodeError
 
 from werkzeug.wrappers import Request, Response
 from werkzeug.utils import redirect as http_redirect
 from werkzeug.exceptions import HTTPException
+from werkzeug.http import http_date
 
 
 def render(tpl_env, template, view):
-    """Renders a view into a template given a template environment `tpl_env """
+    """Renders a view into a template given a template environment `tpl_env` """
     return tpl_env.get_template(template).render(**view)
 
 
@@ -106,7 +101,7 @@ class BaseController(object):
 
     def return_json(self, json):
         self.template = None
-        self._response.data = json_dumps(json)
+        self._response.data = dumps(json)
         self._response.content_length = len(self._response.data)
         self._response.content_type="text/json"
 
@@ -182,7 +177,7 @@ class StaticController(BaseController):
     
     
     def index(self, rest):
-        pass
+        self.requested_path = rest
     
     def _getStaticResponse(self):
         
@@ -191,55 +186,52 @@ class StaticController(BaseController):
         # find the static resource
         path = [self.static_path]
         path.extend(self.requested_path.split('/'))
-        path = path_join(*path)
-
+        path = os.path.join(*path)
+        
         # check last modified 
-        modified = file_stat(path).st_mtime
-        modified_real = datetime.fromtimestamp(modified)
+        modified_real = datetime.fromtimestamp(os.stat(path).st_mtime)
         
         # check if cache is in browser and if it is new enough
         if self.request.if_modified_since:
-            modified_since = self.request.if_modified_since
-            if not (modified_real > modified_since):
+            if modified_real <= self.request.if_modified_since:
                 # the cache is usable -> not modified status
                 rs.status_code=304
                 return rs
             
         # cache is old, proceed serving
-        fh = open(path, 'r')
-        rs.data = fh.read()
-        fh.close()
+        with open(path, 'r') as fh:
+            rs.data = fh.read()
         rs.content_length = len(rs.data)
         
         
         # set content type
-        ext = path.split(".")[-1].lower()
-        if ext in self._types.keys():
-            rs.content_type = self._types[ext]
+        try:
+            ext = path.split(".")[-1].lower()
+        except IndexError:
+            rs.content_type="text/text"
+        else:
+            rs.content_type = self._types.get(ext, 'text/text')
         
         # set cache headers
         rs.pragma = 'public'
         rs.headers['Cache-Control']= "max-age=%d" % (24*3600)
 
-        #expires = datetime.now()+timedelta(days=1)
+        expires = datetime.now()+timedelta(days=1)
         
-        #rs.headers['Expires'] = apache_time(expires)
-        #rs.headers['Last-Modified'] = apache_time(modified_real)
+        rs.headers['Expires'] = http_date(expires)
+        rs.headers['Last-Modified'] = http_date(modified_real)
 
         return rs
 
 
     @property
     def response(self):
-        rs = Response('Not found')
-        rs.status_code = 404
         try:
             return self._getStaticResponse()
-        except OSError:
-            pass
-        except IOError:
-            pass
-        return rs
+        except (OSError, IOError):
+            rs = Response('Not found')
+            rs.status_code = 404
+            return rs
 
 
 class BaseSession(dict):
@@ -251,16 +243,14 @@ class BaseSession(dict):
     def load(self, content):
         self.clear()
         try:
-            saved_dict=json_loads(content)
-        except EOFError:
-            saved_dict={}
-        except JSONDecodeError:
+            saved_dict=loads(content)
+        except (EOFError, JSONDecodeError):
             saved_dict={}
 
         self.update(saved_dict)
             
     def save(self):
-        raise NotImplemented, 'save() method of <%s> is not implemented' % self.__class__
+        raise NotImplementedError, 'save() method of <%s> is not implemented' % self.__class__
     
     @property
     def age(self):
@@ -283,12 +273,12 @@ class FileStoreSession(BaseSession):
         self.filepath = path2 + '/' + id[4:]
 
         if not os.path.exists(path1):
-            mkdir(path1)
-            mkdir(path2)
+            os.mkdir(path1)
+            os.mkdir(path2)
             content=""
             self._age=0
         elif not os.path.exists(path2): 
-            mkdir(path2)
+            os.mkdir(path2)
             content=""
             self._age=0
         else:
@@ -301,13 +291,13 @@ class FileStoreSession(BaseSession):
                 # session already exists
                 content = fh.read()
                 fh.close()
-                self._age = time()-file_stat(self.filepath).st_mtime
+                self._age = time()-os.stat(self.filepath).st_mtime
         
         self.load(content)
         
         
     def save(self):
         fh = open(self.filepath, 'w')
-        fh.write(json_dumps(dict(self)))
+        fh.write(dumps(dict(self)))
         fh.close()
 
